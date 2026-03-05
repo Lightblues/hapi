@@ -334,7 +334,7 @@ export function query(config: {
     // Determine how to spawn Claude Code
     // - If it's just 'claude' command → spawn('claude', args) with shell on Windows
     // - If it's a full path to binary or script → spawn(path, args)
-    const isCommandOnly = pathToClaudeCodeExecutable === 'claude'
+    const isCommandOnly = pathToClaudeCodeExecutable === 'claude' || pathToClaudeCodeExecutable === 'claude-internal'
     
     // Validate executable path (skip for command-only mode)
     if (!isCommandOnly && !existsSync(pathToClaudeCodeExecutable)) {
