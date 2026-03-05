@@ -139,7 +139,8 @@ export async function claudeRemote(opts: {
         canCallTool: (toolName: string, input: unknown, options: { signal: AbortSignal }) => opts.canCallTool(toolName, input, mode, options),
         abort: opts.signal,
         pathToClaudeCodeExecutable: cliPath,
-        settingsPath: opts.hookSettingsPath,
+        // claude-internal does not support --settings flag
+        settingsPath: opts.flavor === 'claude-internal' ? undefined : opts.hookSettingsPath,
         additionalDirectories: [getHapiBlobsDir()],
     }
 
