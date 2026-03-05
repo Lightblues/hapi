@@ -9,85 +9,105 @@ import { homedir } from 'node:os'
 import { logger } from '@/ui/logger'
 
 /**
+ * Candidate command names, ordered by priority.
+ */
+const DEFAULT_CLAUDE_COMMAND_CANDIDATES = ['claude-internal', 'claude'] as const
+
+function getCandidatesForFlavor(flavor?: string): readonly string[] {
+    if (flavor === 'claude') {
+        return ['claude']
+    }
+    if (flavor === 'claude-internal') {
+        return ['claude-internal']
+    }
+    return DEFAULT_CLAUDE_COMMAND_CANDIDATES
+}
+
+/**
  * Find Claude executable path on Windows.
  * Returns absolute path to claude.exe for use with shell: false
  */
-function findWindowsClaudePath(): string | null {
+function findWindowsClaudePath(candidates: readonly string[]): string | null {
     const homeDir = homedir()
     const path = require('node:path')
 
-    // Known installation paths for Claude on Windows
-    const candidates = [
-        path.join(homeDir, '.local', 'bin', 'claude.exe'),
-        path.join(homeDir, 'AppData', 'Local', 'Programs', 'claude', 'claude.exe'),
-        path.join(homeDir, 'AppData', 'Local', 'Microsoft', 'WinGet', 'Packages', 'Anthropic.claude-code_Microsoft.Winget.Source_8wekyb3d8bbwe', 'claude.exe'),
-    ]
+    for (const cmd of candidates) {
+        // Known installation paths
+        const paths = [
+            path.join(homeDir, '.local', 'bin', `${cmd}.exe`),
+            path.join(homeDir, 'AppData', 'Local', 'Programs', cmd, `${cmd}.exe`),
+        ]
 
-    for (const candidate of candidates) {
-        if (existsSync(candidate)) {
-            logger.debug(`[Claude SDK] Found Windows claude.exe at: ${candidate}`)
-            return candidate
+        if (cmd === 'claude') {
+            paths.push(path.join(homeDir, 'AppData', 'Local', 'Microsoft', 'WinGet', 'Packages',
+                'Anthropic.claude-code_Microsoft.Winget.Source_8wekyb3d8bbwe', `${cmd}.exe`))
         }
-    }
 
-    // Try 'where claude' to find in PATH
-    try {
-        const result = execSync('where claude.exe', {
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-            cwd: homeDir
-        }).trim().split('\n')[0].trim()
-        if (result && existsSync(result)) {
-            logger.debug(`[Claude SDK] Found Windows claude.exe via where: ${result}`)
-            return result
+        for (const candidate of paths) {
+            if (existsSync(candidate)) {
+                logger.debug(`[Claude SDK] Found Windows ${cmd}.exe at: ${candidate}`)
+                return candidate
+            }
         }
-    } catch {
-        // where didn't find it
+
+        // Try 'where' to find in PATH
+        try {
+            const result = execSync(`where ${cmd}.exe`, {
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+                cwd: homeDir
+            }).trim().split('\n')[0].trim()
+            if (result && existsSync(result)) {
+                logger.debug(`[Claude SDK] Found Windows ${cmd}.exe via where: ${result}`)
+                return result
+            }
+        } catch {
+            // where didn't find it
+        }
     }
 
     return null
 }
 
 /**
- * Try to find globally installed Claude CLI
- * On Windows: Returns absolute path to claude.exe (for shell: false)
- * On Unix: Returns 'claude' if command works, or actual path via which
- * Runs from home directory to avoid local cwd side effects
+ * Try to find globally installed Claude CLI.
+ * On Windows: Returns absolute path to .exe (for shell: false)
+ * On Unix: Returns command name if it works, or actual path via which
  */
-function findGlobalClaudePath(): string | null {
+function findGlobalClaudePath(candidates: readonly string[]): string | null {
     const homeDir = homedir()
 
-    // Windows: Always return absolute path for shell: false compatibility
     if (process.platform === 'win32') {
-        return findWindowsClaudePath()
+        return findWindowsClaudePath(candidates)
     }
 
-    // Unix: Check if 'claude' command works directly from home dir
-    try {
-        execSync('claude --version', {
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-            cwd: homeDir
-        })
-        logger.debug('[Claude SDK] Global claude command available')
-        return 'claude'
-    } catch {
-        // claude command not available globally
-    }
-
-    // FALLBACK for Unix: try which to get actual path
-    try {
-        const result = execSync('which claude', {
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-            cwd: homeDir
-        }).trim()
-        if (result && existsSync(result)) {
-            logger.debug(`[Claude SDK] Found global claude path via which: ${result}`)
-            return result
+    // Unix: try each candidate in priority order
+    for (const cmd of candidates) {
+        try {
+            execSync(`${cmd} --version`, {
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+                cwd: homeDir
+            })
+            logger.debug(`[Claude SDK] Global ${cmd} command available`)
+            return cmd
+        } catch {
+            // not available
         }
-    } catch {
-        // which didn't find it
+
+        try {
+            const result = execSync(`which ${cmd}`, {
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+                cwd: homeDir
+            }).trim()
+            if (result && existsSync(result)) {
+                logger.debug(`[Claude SDK] Found global ${cmd} path via which: ${result}`)
+                return result
+            }
+        } catch {
+            // which didn't find it
+        }
     }
 
     return null
@@ -95,21 +115,24 @@ function findGlobalClaudePath(): string | null {
 
 /**
  * Get default path to Claude Code executable.
- *
- * Environment variables:
- * - HAPI_CLAUDE_PATH: Force a specific path to claude executable
+ * Priority: HAPI_CLAUDE_PATH env > flavor-aware candidate detection
  */
-export function getDefaultClaudeCodePath(): string {
-    // Allow explicit override via env var
+export function getDefaultClaudeCodePath(flavor?: string): string {
     if (process.env.HAPI_CLAUDE_PATH) {
         logger.debug(`[Claude SDK] Using HAPI_CLAUDE_PATH: ${process.env.HAPI_CLAUDE_PATH}`)
         return process.env.HAPI_CLAUDE_PATH
     }
 
-    // Find global claude
-    const globalPath = findGlobalClaudePath()
+    const candidates = getCandidatesForFlavor(flavor)
+    logger.debug(`[Claude SDK] Searching for CLI with flavor=${flavor ?? 'unset'}, candidates=[${candidates.join(', ')}]`)
+
+    const globalPath = findGlobalClaudePath(candidates)
     if (!globalPath) {
-        throw new Error('Claude Code CLI not found on PATH. Install Claude Code or set HAPI_CLAUDE_PATH.')
+        const requiredCmd = flavor ?? 'claude or claude-internal'
+        throw new Error(
+            `Claude Code CLI not found on PATH (required: ${requiredCmd}).\n` +
+            'Install the required CLI or set HAPI_CLAUDE_PATH.'
+        )
     }
     return globalPath
 }

@@ -1,15 +1,30 @@
 import { claudeLocal } from "./claudeLocal";
 import { Session } from "./session";
-import { createSessionScanner } from "./utils/sessionScanner";
+import { createSessionScanner, type SessionDiscoveryMode } from "./utils/sessionScanner";
 import { isClaudeChatVisibleMessage } from "./utils/chatVisibility";
 import { BaseLocalLauncher } from "@/modules/common/launcher/BaseLocalLauncher";
+import { getDefaultClaudeCodePath } from "./sdk/utils";
+import { setCliConfigDir } from "./utils/path";
+import { logger } from "@/ui/logger";
 
 export async function claudeLocalLauncher(session: Session): Promise<'switch' | 'exit'> {
+
+    // Configure config dir before creating scanner, so getProjectPath() uses the correct base dir
+    const claudeCommand = getDefaultClaudeCodePath(session.flavor);
+    setCliConfigDir(claudeCommand);
+
+    // Determine session discovery mode based on flavor:
+    // - claude: supports --settings, so SessionStart hook works → use 'hook' mode
+    // - claude-internal: does NOT support --settings, hooks unavailable → use 'directory-scan' mode
+    const discoveryMode: SessionDiscoveryMode = session.flavor === 'claude-internal'
+        ? 'directory-scan'
+        : 'hook';
 
     // Create scanner
     const scanner = await createSessionScanner({
         sessionId: session.sessionId,
         workingDirectory: session.path,
+        discoveryMode,
         onMessage: (message) => {
             // Block SDK summary messages - we generate our own
             if (message.type === 'summary') {
@@ -26,6 +41,9 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
                 return
             }
             session.client.sendClaudeSessionMessage(message)
+        },
+        onSessionDiscovered: (sessionId: string) => {
+            session.onSessionFound(sessionId);
         }
     });
 
@@ -52,6 +70,7 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
                 mcpServers: session.mcpServers,
                 allowedTools: session.allowedTools,
                 hookSettingsPath: session.hookSettingsPath,
+                flavor: session.flavor,
             });
         },
         onLaunchSuccess: () => {

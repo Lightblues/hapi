@@ -30,6 +30,7 @@ export interface StartOptions {
     claudeEnvVars?: Record<string, string>
     claudeArgs?: string[]
     startedBy?: 'runner' | 'terminal'
+    flavorOverride?: string
 }
 
 export async function runClaude(options: StartOptions = {}): Promise<void> {
@@ -52,7 +53,7 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
     const initialModel = normalizeClaudeSessionModel(options.model);
     const initialEffort = normalizeClaudeSessionEffort(options.effort);
     const { api, session, sessionInfo } = await bootstrapSession({
-        flavor: 'claude',
+        flavor: options.flavorOverride ?? 'claude',
         startedBy,
         workingDirectory,
         agentState: initialState,
@@ -378,7 +379,8 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
             claudeEnvVars: options.claudeEnvVars,
             claudeArgs: options.claudeArgs,
             startedBy,
-            hookSettingsPath
+            hookSettingsPath,
+            flavor: options.flavorOverride
         });
     } catch (error) {
         loopError = error;

@@ -16,6 +16,8 @@ import type { CommandContext, CommandDefinition } from './types'
 const COMMANDS: CommandDefinition[] = [
     authCommand,
     connectCommand,
+    { ...claudeCommand, name: 'claude' },
+    { ...claudeCommand, name: 'claude-internal' },
     codexCommand,
     cursorCommand,
     geminiCommand,

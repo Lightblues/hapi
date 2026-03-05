@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { logger } from "@/ui/logger";
 import { restoreTerminalState } from "@/ui/terminalState";
 import { claudeCheckSession } from "./utils/claudeCheckSession";
-import { getProjectPath } from "./utils/path";
+import { getProjectPath, setCliConfigDir } from "./utils/path";
 import { appendMcpConfigArg } from "./utils/mcpConfig";
 import { systemPrompt } from "./utils/systemPrompt";
 import { withBunRuntimeEnv } from "@/utils/bunRuntime";
@@ -20,7 +20,13 @@ export async function claudeLocal(opts: {
     claudeArgs?: string[]
     allowedTools?: string[]
     hookSettingsPath: string
+    flavor?: string
 }) {
+
+    // Get Claude executable path early so we can configure the config directory
+    const claudeCommand = getDefaultClaudeCodePath(opts.flavor);
+    setCliConfigDir(claudeCommand);
+    logger.debug(`[ClaudeLocal] Using claude executable: ${claudeCommand} (flavor=${opts.flavor ?? 'unset'})`);
 
     // Ensure project directory exists
     const projectDir = getProjectPath(opts.path);
@@ -84,10 +90,6 @@ export async function claudeLocal(opts: {
     }
 
     logger.debug(`[ClaudeLocal] Spawning claude with args: ${JSON.stringify(args)}`);
-
-    // Get Claude executable path (absolute path on Windows for shell: false)
-    const claudeCommand = getDefaultClaudeCodePath();
-    logger.debug(`[ClaudeLocal] Using claude executable: ${claudeCommand}`);
 
     // Spawn the process
     try {
