@@ -102,6 +102,15 @@ export function getHappyCliCommand(args: string[]): HappyCliCommand {
   };
 }
 
+/**
+ * Get the effective working directory for a spawned HAPI process.
+ * In dev mode, spawnHappyCLI overrides cwd to the cli/ root for module resolution,
+ * and passes the intended cwd via HAPI_SPAWN_CWD.
+ */
+export function getSpawnWorkingDirectory(): string {
+  return process.env.HAPI_SPAWN_CWD || process.cwd();
+}
+
 export function spawnHappyCLI(args: string[], options: SpawnOptions = {}): ChildProcess {
 
   let directory: string | URL | undefined;
@@ -147,5 +156,22 @@ export function spawnHappyCLI(args: string[], options: SpawnOptions = {}): Child
   if (process.platform === 'win32' && options.detached) {
     finalOptions.windowsHide = true;
   }
+
+  // In dev mode, bun resolves @/* path aliases relative to tsconfig.json location (cli/).
+  // If the caller sets a different cwd, module resolution breaks.
+  // Fix: force cwd to the project root and pass the intended cwd via HAPI_SPAWN_CWD env var.
+  if (!isBunCompiled() && finalOptions.cwd) {
+    const intendedCwd = String(finalOptions.cwd);
+    const cliRoot = projectPath();
+    if (intendedCwd !== cliRoot) {
+      finalOptions.env = {
+        ...(finalOptions.env ?? process.env),
+        HAPI_SPAWN_CWD: intendedCwd,
+      };
+      finalOptions.cwd = cliRoot;
+      logger.debug(`[SPAWN HAPI CLI] Dev mode: cwd overridden to ${cliRoot}, HAPI_SPAWN_CWD=${intendedCwd}`);
+    }
+  }
+
   return spawn(spawnCommand, spawnArgs, finalOptions);
 }
