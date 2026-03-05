@@ -386,7 +386,7 @@ export class ApiClient {
     async spawnSession(
         machineId: string,
         directory: string,
-        agent?: 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode',
+        agent?: 'claude' | 'claude-internal' | 'codex' | 'cursor' | 'gemini' | 'opencode',
         model?: string,
         modelReasoningEffort?: string,
         yolo?: boolean,

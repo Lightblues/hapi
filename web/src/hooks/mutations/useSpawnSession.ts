@@ -6,7 +6,7 @@ import { queryKeys } from '@/lib/query-keys'
 type SpawnInput = {
     machineId: string
     directory: string
-    agent?: 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode'
+    agent?: 'claude' | 'claude-internal' | 'codex' | 'cursor' | 'gemini' | 'opencode'
     model?: string
     effort?: string
     modelReasoningEffort?: string

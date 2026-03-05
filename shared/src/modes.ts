@@ -38,7 +38,7 @@ export type PermissionMode = typeof PERMISSION_MODES[number]
 export const CLAUDE_MODEL_PRESETS = ['sonnet', 'sonnet[1m]', 'opus', 'opus[1m]'] as const
 export type ClaudeModelPreset = typeof CLAUDE_MODEL_PRESETS[number]
 
-export type AgentFlavor = 'claude' | 'codex' | 'gemini' | 'opencode' | 'cursor'
+export type AgentFlavor = 'claude' | 'claude-internal' | 'codex' | 'gemini' | 'opencode' | 'cursor'
 
 export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
     default: 'Default',

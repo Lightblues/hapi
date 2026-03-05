@@ -13,8 +13,8 @@ export function AgentSelector(props: {
             <label className="text-xs font-medium text-[var(--app-hint)]">
                 {t('newSession.agent')}
             </label>
-            <div className="flex gap-3">
-                {(['claude', 'codex', 'cursor', 'gemini', 'opencode'] as const).map((agentType) => (
+            <div className="flex flex-wrap gap-3">
+                {(['claude', 'claude-internal', 'codex', 'cursor', 'gemini', 'opencode'] as const).map((agentType) => (
                     <label
                         key={agentType}
                         className="flex items-center gap-1.5 cursor-pointer"

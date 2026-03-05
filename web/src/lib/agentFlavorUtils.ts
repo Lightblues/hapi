@@ -3,7 +3,7 @@ export function isCodexFamilyFlavor(flavor?: string | null): boolean {
 }
 
 export function isClaudeFlavor(flavor?: string | null): boolean {
-    return flavor === 'claude'
+    return flavor === 'claude' || flavor === 'claude-internal'
 }
 
 export function isCursorFlavor(flavor?: string | null): boolean {

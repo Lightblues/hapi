@@ -340,7 +340,9 @@ export async function startRunner(): Promise<void> {
         }
 
         // Construct arguments for the CLI
-        const agentCommand = agent === 'codex'
+        const agentCommand = agent === 'claude-internal'
+          ? 'claude-internal'
+          : agent === 'codex'
           ? 'codex'
           : agent === 'cursor'
             ? 'cursor'
