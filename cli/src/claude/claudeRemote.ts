@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { parseSpecialCommand } from "@/parsers/specialCommands";
 import { logger } from "@/lib";
 import { PushableAsyncIterable } from "@/utils/PushableAsyncIterable";
-import { getProjectPath } from "./utils/path";
+import { getProjectPath, setCliConfigDir } from "./utils/path";
 import { awaitFileExist } from "@/modules/watcher/awaitFileExist";
 import { systemPrompt } from "./utils/systemPrompt";
 import { PermissionResult } from "./sdk/types";
@@ -24,6 +24,7 @@ export async function claudeRemote(opts: {
     hookSettingsPath: string,
     signal?: AbortSignal,
     canCallTool: (toolName: string, input: unknown, mode: EnhancedMode, options: { signal: AbortSignal }) => Promise<PermissionResult>,
+    flavor?: string,
 
     // Dynamic parameters
     nextMessage: () => Promise<{ message: string, mode: EnhancedMode } | null>,
@@ -38,6 +39,10 @@ export async function claudeRemote(opts: {
     onSessionReset?: () => void
 }) {
     const debugPrefix = '[claudeRemote][async-debug]';
+
+    // Configure config directory based on the CLI type
+    const cliPath = getDefaultClaudeCodePath(opts.flavor);
+    setCliConfigDir(cliPath);
 
     // Check if session is valid
     let startFrom = opts.sessionId;
@@ -136,8 +141,9 @@ export async function claudeRemote(opts: {
         disallowedTools: initial.mode.disallowedTools,
         canCallTool: (toolName: string, input: unknown, options: { signal: AbortSignal }) => opts.canCallTool(toolName, input, mode, options),
         abort: opts.signal,
-        pathToClaudeCodeExecutable: getDefaultClaudeCodePath(),
-        settingsPath: opts.hookSettingsPath,
+        pathToClaudeCodeExecutable: cliPath,
+        // claude-internal does not support --settings flag
+        settingsPath: opts.flavor === 'claude-internal' ? undefined : opts.hookSettingsPath,
         additionalDirectories: [getHapiBlobsDir()],
     }
 

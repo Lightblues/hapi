@@ -18,14 +18,17 @@ import type { CommandDefinition } from './types'
 export const claudeCommand: CommandDefinition = {
     name: 'default',
     requiresRuntimeAssets: true,
-    run: async ({ commandArgs }) => {
+    run: async ({ commandArgs, subcommand }) => {
         const args = [...commandArgs]
 
-        if (args.length > 0 && args[0] === 'claude') {
-            args.shift()
-        }
-
         const options: StartOptions = {}
+
+        // Support `hapi claude` and `hapi claude-internal` subcommands
+        if (subcommand === 'claude') {
+            options.flavorOverride = 'claude'
+        } else if (subcommand === 'claude-internal') {
+            options.flavorOverride = 'claude-internal'
+        }
         let showHelp = false
         const unknownArgs: string[] = []
         let hasExplicitPermissionMode = false
@@ -85,6 +88,8 @@ ${chalk.bold('hapi')} - Claude Code On the Go
 
 ${chalk.bold('Usage:')}
   hapi [options]         Start Claude with Telegram control (direct-connect)
+  hapi claude            Start with claude CLI explicitly
+  hapi claude-internal   Start with claude-internal CLI explicitly
   hapi auth              Manage authentication
   hapi codex             Start Codex mode
   hapi cursor            Start Cursor Agent mode

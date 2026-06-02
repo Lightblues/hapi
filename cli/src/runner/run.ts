@@ -905,17 +905,20 @@ export function buildCliArgs(
   options: SpawnSessionOptions,
   yolo?: boolean
 ): string[] {
-  const agentCommand = agent === 'codex'
-    ? 'codex'
-    : agent === 'cursor'
-      ? 'cursor'
-      : agent === 'gemini'
-        ? 'gemini'
-        : agent === 'kimi'
-          ? 'kimi'
-          : agent === 'opencode'
-            ? 'opencode'
-            : 'claude';
+  const isClaudeFamily = agent === 'claude' || agent === 'claude-internal';
+  const agentCommand = agent === 'claude-internal'
+    ? 'claude-internal'
+    : agent === 'codex'
+      ? 'codex'
+      : agent === 'cursor'
+        ? 'cursor'
+        : agent === 'gemini'
+          ? 'gemini'
+          : agent === 'kimi'
+            ? 'kimi'
+            : agent === 'opencode'
+              ? 'opencode'
+              : 'claude';
   const args = [agentCommand];
   if (options.resumeSessionId) {
     if (agent === 'codex') {
@@ -930,7 +933,7 @@ export function buildCliArgs(
   if (options.model) {
     args.push('--model', options.model);
   }
-  if (options.effort && agent === 'claude') {
+  if (options.effort && isClaudeFamily) {
     args.push('--effort', options.effort);
   }
   if (options.modelReasoningEffort && (agent === 'codex' || agent === 'opencode')) {

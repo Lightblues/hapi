@@ -11,6 +11,7 @@ export type Capability = typeof Capabilities[keyof typeof Capabilities]
 // --- Per-flavor capability sets ---
 const FLAVOR_CAPS: Record<AgentFlavor, ReadonlySet<Capability>> = {
     claude: new Set([Capabilities.ModelChange, Capabilities.Effort]),
+    'claude-internal': new Set([Capabilities.ModelChange]),
     gemini: new Set([Capabilities.ModelChange]),
     kimi: new Set([Capabilities.ModelChange]),
     codex: new Set([Capabilities.ModelChange]),
@@ -21,6 +22,7 @@ const FLAVOR_CAPS: Record<AgentFlavor, ReadonlySet<Capability>> = {
 // --- Flavor display names ---
 const FLAVOR_LABELS: Record<AgentFlavor, string> = {
     claude: 'Claude',
+    'claude-internal': 'Claude (Internal)',
     gemini: 'Gemini',
     kimi: 'Kimi',
     codex: 'Codex',

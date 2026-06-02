@@ -35,6 +35,7 @@ export interface StartOptions {
     existingSessionId?: string
     workingDirectory?: string
     resumeSessionId?: string
+    flavorOverride?: string
 }
 
 export async function runClaude(options: StartOptions = {}): Promise<void> {
@@ -56,15 +57,16 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
     const initialState: AgentState = {};
     const initialModel = normalizeClaudeSessionModel(options.model);
     const initialEffort = normalizeClaudeSessionEffort(options.effort);
+    const flavor = options.flavorOverride ?? 'claude';
     const bootstrap = options.existingSessionId
         ? await bootstrapExistingSession({
             sessionId: options.existingSessionId,
-            flavor: 'claude',
+            flavor,
             startedBy,
             workingDirectory
         })
         : await bootstrapSession({
-            flavor: 'claude',
+            flavor,
             startedBy,
             workingDirectory,
             agentState: initialState,
@@ -434,7 +436,8 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
             claudeArgs: options.claudeArgs,
             startedBy,
             resumeSessionId: options.resumeSessionId,
-            hookSettingsPath
+            hookSettingsPath,
+            flavor: options.flavorOverride
         });
     } catch (error) {
         loopError = error;

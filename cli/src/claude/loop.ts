@@ -40,6 +40,7 @@ interface LoopOptions {
     onSessionReady?: (session: Session) => void
     hookSettingsPath: string
     resumeSessionId?: string
+    flavor?: string
 }
 
 export async function loop(opts: LoopOptions) {
@@ -66,7 +67,8 @@ export async function loop(opts: LoopOptions) {
         hookSettingsPath: opts.hookSettingsPath,
         permissionMode: opts.permissionMode ?? 'default',
         model: opts.model,
-        effort: opts.effort
+        effort: opts.effort,
+        flavor: opts.flavor
     });
 
     await runLocalRemoteSession({

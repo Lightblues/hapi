@@ -20,6 +20,7 @@ export class Session extends AgentSessionBase<EnhancedMode> {
     readonly hookSettingsPath: string;
     readonly startedBy: 'runner' | 'terminal';
     readonly startingMode: 'local' | 'remote';
+    readonly flavor?: string;
     localLaunchFailure: LocalLaunchFailure | null = null;
 
     constructor(opts: {
@@ -41,6 +42,7 @@ export class Session extends AgentSessionBase<EnhancedMode> {
         permissionMode?: PermissionMode;
         model?: SessionModel;
         effort?: SessionEffort;
+        flavor?: string;
     }) {
         super({
             api: opts.api,
@@ -69,6 +71,7 @@ export class Session extends AgentSessionBase<EnhancedMode> {
         this.hookSettingsPath = opts.hookSettingsPath;
         this.startedBy = opts.startedBy;
         this.startingMode = opts.startingMode;
+        this.flavor = opts.flavor;
         this.permissionMode = opts.permissionMode;
         this.model = opts.model;
         this.effort = opts.effort;

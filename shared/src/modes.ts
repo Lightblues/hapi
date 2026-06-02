@@ -7,7 +7,7 @@ import { z } from 'zod'
  */
 export const AGENT_MESSAGE_PAYLOAD_TYPE = 'codex' as const
 
-export const AGENT_FLAVORS = ['claude', 'codex', 'cursor', 'gemini', 'kimi', 'opencode'] as const
+export const AGENT_FLAVORS = ['claude', 'claude-internal', 'codex', 'cursor', 'gemini', 'kimi', 'opencode'] as const
 export type AgentFlavor = typeof AGENT_FLAVORS[number]
 export const AgentFlavorSchema = z.enum(AGENT_FLAVORS)
 
@@ -43,7 +43,6 @@ export const PERMISSION_MODES = [
     'yolo'
 ] as const
 export type PermissionMode = typeof PERMISSION_MODES[number]
-
 
 export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
     default: 'Default',
