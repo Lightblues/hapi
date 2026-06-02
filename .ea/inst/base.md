@@ -3,7 +3,5 @@
 - 个性化代码希望放在 eason 分支上, 是否合理?
 - upstream 已经更新到了 0.19.0, 检查一下有哪些更新内容, 可否 merge?
 
-你做了什么? 现在的 git tree 是怎样的?
-
 # Notes
 - [hapi](https://github.com/Lightblues/hapi); [upstream](https://github.com/tiann/hapi) #hapi: 远程调用本机服务
