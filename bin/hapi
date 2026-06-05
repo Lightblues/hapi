@@ -1,4 +1,4 @@
 #!/bin/bash
 # Dev wrapper for forked tiann/hapi
 # Must run from cli/ dir for bun to resolve @/* path aliases in tsconfig.json
-HAPI_SPAWN_CWD="${PWD}" HAPI_INVOKED_CWD="${PWD}" exec /Users/frankshi/.bun/bin/bun --cwd /Users/frankshi/LProjects/ea-fork/packages/hapi/cli /Users/frankshi/LProjects/ea-fork/packages/hapi/cli/src/index.ts "$@"
+HAPI_SPAWN_CWD="${PWD}" HAPI_INVOKED_CWD="${PWD}" exec /Users/frankshi/.bun/bin/bun --cwd /Users/frankshi/Projects/vibe/hapi/cli /Users/frankshi/Projects/vibe/hapi/cli/src/index.ts "$@"
