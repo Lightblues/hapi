@@ -151,6 +151,22 @@ describe('ApiClient error mapping', () => {
         })
     })
 
+    it('posts a steer for a queued message', async () => {
+        fetchMock.mockResolvedValueOnce(
+            new Response(JSON.stringify({ status: 'steered', localId: 'local-1' }), { status: 200 })
+        )
+
+        const api = new ApiClient('test-token')
+        await expect(api.steerMessage('session /?#', 'msg-1')).resolves.toEqual({
+            status: 'steered',
+            localId: 'local-1',
+        })
+
+        const [url, init] = fetchMock.mock.calls[0] ?? []
+        expect(url).toBe('/api/sessions/session%20%2F%3F%23/messages/msg-1/steer')
+        expect(init).toMatchObject({ method: 'POST' })
+    })
+
     it('requests usage buckets in the viewer IANA time zone', async () => {
         fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
 
@@ -182,5 +198,41 @@ describe('ApiClient error mapping', () => {
         const api = new ApiClient('test-token')
         await expect(api.fetchVoiceBackend()).resolves.toEqual({ backend: null, backends: [] })
         expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/voice/backend')
+    })
+
+    it('reads and updates masked transcription credentials', async () => {
+        const status = {
+            openai: { configured: true, source: 'settings', hint: '••••cret', editable: true },
+            elevenlabs: { configured: false, source: 'none', hint: null, editable: true },
+            deepgram: { configured: false, source: 'none', hint: null, editable: true },
+            groq: { configured: false, source: 'none', hint: null, editable: true },
+            openaiCompatible: {
+                configured: false,
+                source: 'none',
+                baseUrl: null,
+                model: null,
+                baseUrlEditable: true,
+                modelEditable: true,
+                apiKey: { configured: false, source: 'none', hint: null, editable: true },
+            },
+            voiceBackends: {
+                elevenlabs: { configured: false, source: 'none', hint: null, editable: true },
+                geminiLive: { configured: false, source: 'none', hint: null, editable: true },
+                qwenRealtime: { configured: false, source: 'none', hint: null, editable: true },
+            },
+        }
+        fetchMock
+            .mockResolvedValueOnce(new Response(JSON.stringify(status), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify(status), { status: 200 }))
+
+        const api = new ApiClient('test-token')
+        await expect(api.fetchTranscriptionCredentials()).resolves.toEqual(status)
+        expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/voice/transcription/credentials')
+
+        await expect(api.updateTranscriptionCredentials({ openai: 'sk-test' })).resolves.toEqual(status)
+        const [, init] = fetchMock.mock.calls[1] ?? []
+        expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/voice/transcription/credentials')
+        expect(init?.method).toBe('PUT')
+        expect(init?.body).toBe(JSON.stringify({ openai: 'sk-test' }))
     })
 })

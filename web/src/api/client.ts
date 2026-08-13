@@ -49,12 +49,57 @@ import type {
     ReopenSessionResponse,
     SqliteStorageUsageResponse,
     HubSettingsResponse,
+    UpdateHubSettingsRequest,
     UsageSummaryResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
-import type { CancelMessageResponse } from '@hapi/protocol/schemas'
+import type { CancelMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
+
+export type ProviderCredentialSource = 'env' | 'settings' | 'none'
+
+export interface MaskedCredentialStatus {
+    configured: boolean
+    source: ProviderCredentialSource
+    hint: string | null
+    editable: boolean
+}
+
+export interface TranscriptionCredentialStatus {
+    openai: MaskedCredentialStatus
+    elevenlabs: MaskedCredentialStatus
+    deepgram: MaskedCredentialStatus
+    groq: MaskedCredentialStatus
+    openaiCompatible: {
+        configured: boolean
+        source: ProviderCredentialSource
+        baseUrl: string | null
+        model: string | null
+        baseUrlEditable: boolean
+        modelEditable: boolean
+        apiKey: MaskedCredentialStatus
+    }
+    voiceBackends: {
+        elevenlabs: MaskedCredentialStatus
+        geminiLive: MaskedCredentialStatus
+        qwenRealtime: MaskedCredentialStatus
+    }
+}
+
+export interface TranscriptionCredentialsUpdate {
+    openai?: string | null
+    elevenlabs?: string | null
+    deepgram?: string | null
+    groq?: string | null
+    openaiCompatible?: {
+        baseUrl?: string | null
+        model?: string | null
+        apiKey?: string | null
+    }
+    geminiLive?: string | null
+    qwenRealtime?: string | null
+}
 
 type ApiClientOptions = {
     baseUrl?: string
@@ -386,9 +431,13 @@ export class ApiClient {
         if (authToken) {
             headers.set('authorization', `Bearer ${authToken}`)
         }
-        const res = await fetch(this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-images/${encodeURIComponent(imageId)}`), {
-            headers
-        })
+        const url = this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-images/${encodeURIComponent(imageId)}`)
+        let res = await fetch(url, { headers })
+        // Hub returns ETag + immutable Cache-Control (#927). Default fetch cache stores 200
+        // responses so remounts avoid RPC; on 304 the body is empty — read from cache.
+        if (res.status === 304) {
+            res = await fetch(url, { headers, cache: 'force-cache' })
+        }
         if (res.status === 401 && attempt === 0 && this.onUnauthorized) {
             const refreshed = await this.onUnauthorized()
             if (refreshed) {
@@ -489,6 +538,14 @@ export class ApiClient {
             { method: 'DELETE' }
         )
         return response as CancelMessageResponse
+    }
+
+    async steerMessage(sessionId: string, messageId: string): Promise<SteerQueuedMessageResponse> {
+        const response = await this.request(
+            `/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/steer`,
+            { method: 'POST' }
+        )
+        return response as SteerQueuedMessageResponse
     }
 
     async abortSession(sessionId: string): Promise<void> {
@@ -681,7 +738,7 @@ export class ApiClient {
         return await this.request<HubSettingsResponse>('/api/hub-settings')
     }
 
-    async updateHubSettings(settings: HubSettingsResponse): Promise<HubSettingsResponse> {
+    async updateHubSettings(settings: UpdateHubSettingsRequest): Promise<HubSettingsResponse> {
         return await this.request<HubSettingsResponse>('/api/hub-settings', {
             method: 'PUT',
             body: JSON.stringify(settings)
@@ -697,6 +754,13 @@ export class ApiClient {
             timeZone
         })
         return await this.request<UsageSummaryResponse>(`/api/usage/summary?${params.toString()}`)
+    }
+
+    async restartMachineRunner(machineId: string): Promise<{ message: string }> {
+        return await this.request<{ message: string }>(
+            `/api/machines/${encodeURIComponent(machineId)}/restart-runner`,
+            { method: 'POST', body: '{}' }
+        )
     }
 
     async listMachineDirectory(
@@ -771,6 +835,12 @@ export class ApiClient {
     async getMachineCodexModels(machineId: string): Promise<CodexModelsResponse> {
         return await this.request<CodexModelsResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/codex-models`
+        )
+    }
+
+    async getSessionCodexModels(sessionId: string): Promise<CodexModelsResponse> {
+        return await this.request<CodexModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/codex-models`
         )
     }
 
@@ -865,6 +935,13 @@ export class ApiClient {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
             method: 'PATCH',
             body: JSON.stringify({ name })
+        })
+    }
+
+    async setSessionPinMode(sessionId: string, mode: 'none' | 'project' | 'global'): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/pin`, {
+            method: 'PUT',
+            body: JSON.stringify({ mode })
         })
     }
 
@@ -1038,6 +1115,19 @@ export class ApiClient {
 
     async fetchTranscriptionProviders(): Promise<{ providers: TranscriptionProviderInfo[] }> {
         return await this.request('/api/voice/transcription/providers')
+    }
+
+    async fetchTranscriptionCredentials(): Promise<TranscriptionCredentialStatus> {
+        return await this.request('/api/voice/transcription/credentials')
+    }
+
+    async updateTranscriptionCredentials(
+        update: TranscriptionCredentialsUpdate
+    ): Promise<TranscriptionCredentialStatus> {
+        return await this.request('/api/voice/transcription/credentials', {
+            method: 'PUT',
+            body: JSON.stringify(update),
+        })
     }
 
     async transcribeVoice(options: {

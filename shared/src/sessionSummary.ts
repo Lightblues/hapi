@@ -41,6 +41,8 @@ export type SessionSummaryMetadata = {
     worktree?: WorktreeMetadata
     agentSessionId?: string
     lifecycleState?: string
+    /** Loopback MCP URL when session CLI happy server is running (#956). */
+    hapiMcpUrl?: string
 }
 
 export type SessionSummary = {
@@ -49,6 +51,8 @@ export type SessionSummary = {
     thinking: boolean
     activeAt: number
     updatedAt: number
+    pinned?: boolean
+    globalPinned?: boolean
     metadata: SessionSummaryMetadata | null
     /** Watermarks for structured SSE patches (PR #897). List cache must gate
      *  without requiring a detail query — otherwise global SSE forces O(N)
@@ -192,7 +196,8 @@ export function toSessionSummaryMetadata(metadata: Metadata | null | undefined):
         flavor: metadata.flavor ?? null,
         worktree: metadata.worktree,
         agentSessionId: getSummaryAgentSessionId(metadata),
-        lifecycleState: metadata.lifecycleState
+        lifecycleState: metadata.lifecycleState,
+        hapiMcpUrl: metadata.hapiMcpUrl ?? undefined
     }
 }
 
@@ -203,6 +208,8 @@ export function toSessionSummary(session: Session): SessionSummary {
         thinking: session.thinking,
         activeAt: session.activeAt,
         updatedAt: session.updatedAt,
+        pinned: session.pinned ?? false,
+        globalPinned: session.globalPinned ?? false,
         metadata: toSessionSummaryMetadata(session.metadata),
         metadataVersion: session.metadataVersion,
         agentStateVersion: session.agentStateVersion,

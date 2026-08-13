@@ -196,14 +196,14 @@ On first run, HAPI:
 | `HAPI_HOME` | `~/.hapi` | - | Config directory path |
 | `DB_PATH` | `~/.hapi/hapi.db` | - | Database file path |
 | `HAPI_EXPERIMENTAL` | - | - | CLI: enable experimental features (`true`/`1`/`yes`) |
-| `ELEVENLABS_API_KEY` | - | - | ElevenLabs API key for voice |
+| `ELEVENLABS_API_KEY` | - | Settings / env | ElevenLabs API key for voice + dictation |
 | `ELEVENLABS_AGENT_ID` | Auto-created | - | Custom ElevenLabs agent ID |
-| `OPENAI_API_KEY` | - | - | OpenAI API key for dictation (`gpt-transcribe` / `gpt-live-transcribe`) |
-| `DEEPGRAM_API_KEY` | - | - | Deepgram API key for dictation (`nova-3`) |
-| `GROQ_API_KEY` | - | - | Groq API key for dictation (`whisper-large-v3`) |
-| `TRANSCRIPTION_BASE_URL` | - | - | OpenAI-compatible/local transcription base URL |
-| `TRANSCRIPTION_MODEL` | - | - | Model for the OpenAI-compatible transcription endpoint |
-| `TRANSCRIPTION_API_KEY` | - | - | Optional bearer token for that endpoint |
+| `OPENAI_API_KEY` | - | Settings / env | OpenAI API key for dictation (`gpt-transcribe` / `gpt-live-transcribe`) |
+| `DEEPGRAM_API_KEY` | - | Settings / env | Deepgram API key for dictation (`nova-3`) |
+| `GROQ_API_KEY` | - | Settings / env | Groq API key for dictation (`whisper-large-v3`) |
+| `TRANSCRIPTION_BASE_URL` | - | Settings / env | OpenAI-compatible/local transcription base URL |
+| `TRANSCRIPTION_MODEL` | - | Settings / env | Model for the OpenAI-compatible transcription endpoint |
+| `TRANSCRIPTION_API_KEY` | - | Settings / env | Optional bearer token for that endpoint |
 </details>
 
 <details>
@@ -324,7 +324,11 @@ Use `--workspace-root <path>` to restrict which directories the runner can brows
 hapi runner start --workspace-root ~/projects --workspace-root ~/work
 ```
 
-For running the hub and runner as persistent background services (pm2, launchd, systemd), see [Deployment](./deployment.md).
+For running the hub and runner as persistent background services (pm2, launchd, systemd), see [Deployment](./deployment.md). Supervised installs should set `HAPI_RUNNER_SUPERVISED=1` on the runner process (systemd `Environment=` / pm2 `--env`) so the web **Restart** control can safely stop-runner knowing the supervisor will cold-start it.
+
+### Multi-machine hubs
+
+You can run **one hub** and **runners on many machines** (each machine installs its own CLI). When you upgrade the hub, upgrade the HAPI CLI on every machine that parents sessions. After the CLI binary on disk changes, that machine’s runner normally **self-restarts** via version handoff (unless `HAPI_DISABLE_VERSION_HANDOFF=1`). Until a runner reports the capabilities the hub requires, the web UI shows a **Runner out of date** banner (minimizable / snoozeable) with the host name and upgrade steps. The banner’s per-host **Restart** is only an escape hatch when handoff is stuck or disabled — the hub never downloads or installs packages on remotes.
 
 ## Security notes
 

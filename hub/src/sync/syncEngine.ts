@@ -8,7 +8,12 @@
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
+import {
+    cliBinaryUpdatedOnDisk,
+    isMachineCapabilitySkewed,
+} from '@hapi/protocol/runnerCapabilities'
 import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, MessageDeliveryMode, MessagesResponse, QueuedStateResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
@@ -51,6 +56,7 @@ import {
     type RpcUploadFileResponse
 } from './rpcGateway'
 import { SessionCache } from './sessionCache'
+import { ingestNotifySummaryFromMessage } from './workGraphNotifyIngest'
 
 type PiResumeAttempt = NonNullable<NonNullable<Session['metadata']>['piResumeAttempt']>
 type PtyResumeAttempt = NonNullable<NonNullable<Session['metadata']>['ptyResumeAttempt']>
@@ -185,12 +191,17 @@ export class SyncEngine {
     private readonly opencodeClearTails = new Map<string, Promise<ClearOpencodeSessionResult>>()
     /** Serialize fork/rewind per session so concurrent native rollbacks cannot stack. */
     private readonly historyActionsInFlight = new Set<string>()
+    /**
+     * Hub owner id for accountable work-graph principals (A2A P1/P3).
+     * Defaults to "1" for unit tests; startHub overwrites with getOrCreateOwnerId().
+     */
+    private hubOwnerUserId: string = '1'
 
     constructor(
         private readonly store: Store,
         private readonly io: Server,
         rpcRegistry: RpcRegistry,
-        sseManager: SSEManager
+        sseManager: SSEManager,
     ) {
         this.eventPublisher = new EventPublisher(sseManager, (event) => this.resolveNamespace(event))
         this.sessionCache = new SessionCache(store, this.eventPublisher)
@@ -204,6 +215,10 @@ export class SyncEngine {
         this.rpcGateway = new RpcGateway(io, rpcRegistry)
         this.reloadAll()
         this.inactivityTimer = setInterval(() => this.expireInactive(), 5_000)
+    }
+
+    setHubOwnerUserId(ownerUserId: string | number): void {
+        this.hubOwnerUserId = String(ownerUserId)
     }
 
     stop(): void {
@@ -299,6 +314,14 @@ export class SyncEngine {
 
     getSessionsByNamespace(namespace: string): Session[] {
         return this.sessionCache.getSessionsByNamespace(namespace)
+    }
+
+    setSessionPinned(sessionId: string, pinned: boolean): void {
+        this.sessionCache.setSessionPinned(sessionId, pinned)
+    }
+
+    setSessionPinMode(sessionId: string, mode: 'none' | 'project' | 'global'): void {
+        this.sessionCache.setSessionPinMode(sessionId, mode)
     }
 
     getFutureScheduledMessageCounts(sessionIds: string[], now: number = Date.now()): Map<string, number> {
@@ -454,7 +477,31 @@ export class SyncEngine {
             }
         }
 
+        // Emit chat updates before ledger capture so SSE is not blocked on
+        // synchronous SQLite ingest (cold review m5).
         this.eventPublisher.emit(event)
+
+        if (event.type === 'message-received' && event.sessionId && 'message' in event && event.message) {
+            // A2A P3: well-formed AGENT_NOTIFY_SUMMARY → work-graph work_ad.
+            // Capture is independent of chat display settings (#1462/#1464).
+            const session = this.getSession(event.sessionId)
+            if (session) {
+                try {
+                    ingestNotifySummaryFromMessage({
+                        store: this.store,
+                        namespace: session.namespace,
+                        sessionId: session.id,
+                        messageId: event.message.id,
+                        content: event.message.content,
+                        ts: event.message.createdAt,
+                        ownerUserId: this.hubOwnerUserId,
+                        flavor: session.metadata?.flavor ?? null
+                    })
+                } catch (error) {
+                    console.error('[work-graph] notify ingest failed', error)
+                }
+            }
+        }
     }
 
     handleSessionAlive(payload: {
@@ -731,7 +778,7 @@ export class SyncEngine {
         }
     }
 
-async uploadScratchlistAttachment(
+    async uploadScratchlistAttachment(
         sessionId: string,
         namespace: string,
         filename: string,
@@ -830,6 +877,42 @@ async uploadScratchlistAttachment(
 
     handleMachineAlive(payload: { machineId: string; time: number; health?: unknown }): void {
         this.machineCache.handleMachineAlive(payload)
+    }
+
+    /**
+     * Manual stop-runner for supervised hosts only (banner Restart).
+     * Detached `hapi runner start` has no supervisor — stop would leave the
+     * host offline. Require `metadata.supervisedRestart` (HAPI_RUNNER_SUPERVISED=1).
+     */
+    async restartMachineRunner(machineId: string, namespace: string): Promise<
+        | { type: 'success'; message: string }
+        | { type: 'error'; message: string; code: 'machine_not_found' | 'machine_offline' | 'restart_unsupported' | 'restart_failed' }
+    > {
+        const machine = this.machineCache.getMachineByNamespace(machineId, namespace)
+            ?? this.machineCache.refreshMachine(machineId)
+        if (!machine || machine.namespace !== namespace) {
+            return { type: 'error', message: 'Machine not found', code: 'machine_not_found' }
+        }
+        if (!machine.active) {
+            return { type: 'error', message: 'Machine is offline', code: 'machine_offline' }
+        }
+        if (machine.metadata?.supervisedRestart !== true) {
+            return {
+                type: 'error',
+                message: 'Restart requires a supervised runner (HAPI_RUNNER_SUPERVISED=1); unsupervised stop would leave the host offline',
+                code: 'restart_unsupported',
+            }
+        }
+        try {
+            await this.rpcGateway.stopRunner(machineId)
+            return { type: 'success', message: 'Runner stop requested; supervisor will relaunch' }
+        } catch (error) {
+            return {
+                type: 'error',
+                message: error instanceof Error ? error.message : 'Failed to restart runner',
+                code: 'restart_failed',
+            }
+        }
     }
 
     private expireInactive(): void {
@@ -936,6 +1019,72 @@ async uploadScratchlistAttachment(
         messageId: string
     ): Promise<CancelQueuedMessageResult> {
         return this.messageService.cancelQueuedMessage(sessionId, messageId)
+    }
+
+    /**
+     * Ask the CLI to deliver one waiting-queue message into the active Pi turn
+     * (Pi native steer). Only pi sessions support this today; the CLI's
+     * `steer-queued-message` handler is registered by the pi runner alone.
+     */
+    async steerQueuedMessage(
+        sessionId: string,
+        messageId: string
+    ): Promise<SteerQueuedMessageResponse> {
+        const session = this.getSession(sessionId)
+        if (!session) {
+            return { status: 'failed', error: 'Session not found', localId: null }
+        }
+        if (session.metadata?.flavor !== 'pi') {
+            return { status: 'failed', error: 'Steering is only supported for Pi sessions', localId: null }
+        }
+        if (session.agentState?.controlledByUser === true) {
+            return { status: 'failed', error: 'Steering is only available for remote sessions', localId: null }
+        }
+
+        const lookup = this.store.messages.lookupQueuedMessage(sessionId, messageId)
+        if (lookup.status === 'absent') {
+            return { status: 'failed', error: 'Message not found', localId: null }
+        }
+        if (lookup.status === 'invoked') {
+            const message = lookup.message
+            return {
+                status: 'invoked',
+                message: {
+                    id: message.id,
+                    seq: message.seq,
+                    localId: message.localId,
+                    content: message.content,
+                    createdAt: message.createdAt,
+                    invokedAt: message.invokedAt,
+                    scheduledAt: message.scheduledAt
+                }
+            }
+        }
+        const { localId, scheduledAt } = lookup
+        if (!localId) {
+            return { status: 'failed', error: 'Message has no localId', localId: null }
+        }
+        // Reject every scheduled row — mature ones included. A matured row is
+        // released by the scheduled-FIFO path moments later anyway, and the web
+        // never offers Steer on scheduled rows.
+        if (scheduledAt != null) {
+            return { status: 'failed', error: 'Scheduled messages cannot be steered', localId }
+        }
+
+        try {
+            const result = await this.rpcGateway.steerQueuedMessage(sessionId, localId)
+            if (result.steered) {
+                return { status: 'steered', localId }
+            }
+            return {
+                status: 'failed',
+                error: result.error ?? 'Steer failed',
+                localId
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Steer failed'
+            return { status: 'failed', error: message, localId }
+        }
     }
 
     sweepImmediateQueuedOnSessionEnd(sessionId: string, invokedAt: number): void {
@@ -2743,11 +2892,15 @@ async uploadScratchlistAttachment(
                     }
                 }
             } catch (error) {
-                return {
-                    type: 'error',
-                    message: error instanceof Error ? error.message : 'Failed to inspect Cursor chat store',
-                    code: 'resume_failed'
-                }
+                // Soft-fail on probe skew / missing handler (#1084): definitive
+                // onDisk:false still blocks above; probe errors must not be
+                // reported as missing chat data.
+                const message = error instanceof Error ? error.message : 'Failed to inspect Cursor chat store'
+                console.warn('[resume] Cursor chat-store probe failed; proceeding with reopen attempt', {
+                    sessionId: access.sessionId,
+                    machineId: targetMachine.id,
+                    message
+                })
             }
         }
 
@@ -3726,6 +3879,10 @@ async uploadScratchlistAttachment(
 
     async listCodexModelsForMachine(machineId: string): Promise<RpcListCodexModelsResponse> {
         return await this.rpcGateway.listCodexModelsForMachine(machineId)
+    }
+
+    async listCodexModelsForSession(sessionId: string): Promise<RpcListCodexModelsResponse> {
+        return await this.rpcGateway.listCodexModelsForSession(sessionId)
     }
 
     async listCodexSessionsForMachine(machineId: string, cwd?: string | null, sessionIds?: string[]) {

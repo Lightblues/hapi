@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useScratchlistCount } from '@/lib/use-scratchlist-count'
 import { formatReopenError } from '@/lib/reopenError'
 import { formatReasoningLabel, getReasoningEffortForFlavor } from '@/lib/codexStatusLabels'
+import { retargetSharePendingTransfer } from '@/lib/sharePendingState'
 import { getSessionModelLabel } from '@/lib/sessionModelLabel'
 import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
@@ -147,8 +148,9 @@ export function SessionHeader(props: {
     api: ApiClient | null
     canReopen?: boolean
     reopenDisabledReason?: string
+    reopenHint?: string
     onSessionDeleted?: () => void
-    onSessionReopened?: (newSessionId: string) => void
+    onSessionReopened?: (newSessionId: string) => void | Promise<void>
 }) {
     const { t, locale } = useTranslation()
     const queryClient = useQueryClient()
@@ -220,12 +222,25 @@ export function SessionHeader(props: {
     const [isSyncingCodex, setIsSyncingCodex] = useState(false)
     const [isSyncingPi, setIsSyncingPi] = useState(false)
 
-    const { archiveSession, reopenSession, renameSession, deleteSession, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, renameSession, setPinMode, deleteSession, isPending } = useSessionActions(
         api,
         session.id,
         session.metadata?.flavor ?? null
     )
     const [reopenError, setReopenError] = useState<string | null>(null)
+
+    const handleSetPinMode = async (mode: 'none' | 'project' | 'global') => {
+        try {
+            await setPinMode(mode)
+        } catch (error) {
+            addToast({
+                title: t('session.action.pinFailed'),
+                body: error instanceof Error ? error.message : t('dialog.error.default'),
+                sessionId: session.id,
+                url: `/sessions/${session.id}`
+            })
+        }
+    }
     // tiann/hapi#893: surface the scratchlist entry count in the
     // delete-confirm copy so the operator knows what cascades when they
     // confirm. Read-only hook reuses the cache filled by SessionChat -
@@ -242,7 +257,8 @@ export function SessionHeader(props: {
         try {
             const result = await reopenSession()
             if (result.sessionId && result.sessionId !== session.id) {
-                onSessionReopened?.(result.sessionId)
+                retargetSharePendingTransfer(session.id, result.sessionId)
+                await onSessionReopened?.(result.sessionId)
             }
         } catch (error) {
             setReopenError(formatReopenError(error))
@@ -499,13 +515,17 @@ export function SessionHeader(props: {
                 sessionId={session.id}
                 sessionTitle={title}
                 sessionActive={session.active}
+                sessionPinned={Boolean(session.pinned)}
+                sessionGlobalPinned={Boolean(session.globalPinned)}
                 onRename={() => setRenameOpen(true)}
+                onSetPinMode={api ? (mode) => void handleSetPinMode(mode) : undefined}
                 onExport={() => setExportOpen(true)}
                 onSyncCodex={api && codexSessionId ? handleSyncCodex : undefined}
                 onSyncPi={api && piSessionId && !session.active ? handleSyncPi : undefined}
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={props.canReopen === false ? undefined : handleReopen}
                 reopenDisabledReason={props.reopenDisabledReason}
+                reopenHint={props.reopenHint}
                 onDelete={() => setDeleteOpen(true)}
                 anchorPoint={menuAnchorPoint}
                 menuId={menuId}

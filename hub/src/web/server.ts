@@ -8,6 +8,7 @@ import { serveStatic } from 'hono/bun'
 import { getConfiguration } from '../configuration'
 import { PROTOCOL_VERSION } from '@hapi/protocol'
 import { buildGeminiLiveSetupMessage, QWEN_REALTIME_MODEL } from '@hapi/protocol/voice'
+import { getProviderEnvironment } from '../config/providerCredentials'
 import { createQwenProxyWebSocketHandler } from './qwenProxyHandler'
 import { decodeVoiceSystemPromptParam } from '../voiceSystemPromptParam'
 import type { SyncEngine } from '../sync/syncEngine'
@@ -29,6 +30,7 @@ import { createPushRoutes } from './routes/push'
 import { createDevicesRoutes } from './routes/devices'
 import { createVoiceRoutes } from './routes/voice'
 import { createHubSettingsRoutes } from './routes/hubSettings'
+import { createWorkGraphRoutes } from './routes/workGraph'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
@@ -230,8 +232,13 @@ function createWebApp(options: {
 
     app.use('*', logger())
 
-    // Health check endpoint (no auth required)
-    app.get('/health', (c) => c.json({ status: 'ok', protocolVersion: PROTOCOL_VERSION }))
+    // Health check endpoint (no auth required).
+    // capabilities.workGraph is additive: old clients ignore unknown fields.
+    app.get('/health', (c) => c.json({
+        status: 'ok',
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: { workGraph: true }
+    }))
 
     const configuration = getConfiguration()
     const corsOrigins = options.corsOrigins ?? configuration.corsOrigins
@@ -293,7 +300,9 @@ function createWebApp(options: {
     }))
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
     app.route('/api', createDevicesRoutes(options.store))
-    app.route('/api', createVoiceRoutes())
+    app.route('/api', createVoiceRoutes({ dataDir: configuration.dataDir }))
+    // Path is intentionally NOT `/api/events` — that route is the SSE stream.
+    app.route('/api', createWorkGraphRoutes(options.store))
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {
@@ -500,7 +509,8 @@ export async function startWebServer(options: {
 
             // Gemini Live WebSocket proxy
             if (url.pathname === '/api/voice/gemini-ws') {
-                const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+                const env = getProviderEnvironment()
+                const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY
                 if (!apiKey) {
                     return new Response('Gemini API key not configured', { status: 400 })
                 }
@@ -518,7 +528,8 @@ export async function startWebServer(options: {
             }
             // Qwen Realtime WebSocket proxy
             if (url.pathname === '/api/voice/qwen-ws') {
-                const apiKey = process.env.DASHSCOPE_API_KEY || process.env.QWEN_API_KEY
+                const env = getProviderEnvironment()
+                const apiKey = env.DASHSCOPE_API_KEY || env.QWEN_API_KEY
                 const model = QWEN_REALTIME_MODEL
                 const language = url.searchParams.get('language') ?? undefined
                 const voiceParam = url.searchParams.get('voice')?.trim() || undefined

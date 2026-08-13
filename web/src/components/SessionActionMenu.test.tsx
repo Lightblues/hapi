@@ -40,6 +40,40 @@ beforeEach(() => {
     vi.clearAllMocks()
 })
 
+describe('SessionActionMenu - Pin action', () => {
+    it('renders project and global pin actions', () => {
+        const onSetPinMode = vi.fn()
+        const { rerender } = renderMenu({ onSetPinMode, sessionPinned: false, sessionGlobalPinned: false })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Pin in project' }))
+        expect(onSetPinMode).toHaveBeenCalledWith('project')
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Pin globally' }))
+        expect(onSetPinMode).toHaveBeenCalledWith('global')
+
+        rerender(
+            <I18nProvider>
+                <SessionActionMenu
+                    isOpen={true}
+                    onClose={vi.fn()}
+                    sessionId="session-1"
+                    sessionTitle="Session 1"
+                    sessionActive={false}
+                    sessionPinned={true}
+                    sessionGlobalPinned={true}
+                    onSetPinMode={onSetPinMode}
+                    onRename={vi.fn()}
+                    onArchive={vi.fn()}
+                    onDelete={vi.fn()}
+                    anchorPoint={{ x: 0, y: 0 }}
+                />
+            </I18nProvider>
+        )
+        expect(screen.getByRole('menuitem', { name: 'Unpin from project' })).toBeInTheDocument()
+        expect(screen.getByRole('menuitem', { name: 'Unpin globally' })).toBeInTheDocument()
+    })
+})
+
 describe('SessionActionMenu - Reopen action', () => {
     it('renders the Reopen item on inactive sessions when onReopen is provided', () => {
         renderMenu({ sessionActive: false })
@@ -76,6 +110,22 @@ describe('SessionActionMenu - Reopen action', () => {
 
         fireEvent.click(reopen)
         expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('keeps Reopen enabled with a soft-fail hint when probe is unverified', () => {
+        const onReopen = vi.fn()
+        renderMenu({
+            sessionActive: false,
+            onReopen,
+            reopenHint: 'Could not verify Cursor chat data (runner may be outdated).',
+        })
+
+        const reopen = screen.getByRole('menuitem', { name: /Reopen/ })
+        expect(reopen).not.toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByRole('tooltip')).toHaveTextContent('Could not verify Cursor chat data')
+
+        fireEvent.click(reopen)
+        expect(onReopen).toHaveBeenCalledTimes(1)
     })
 
     it('fires onReopen and closes the menu when the Reopen item is clicked', () => {

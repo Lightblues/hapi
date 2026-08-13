@@ -27,6 +27,7 @@ export function useSessionActions(
     setEffort: (effort: string | null) => Promise<void>
     setServiceTier: (serviceTier: string | null) => Promise<void>
     renameSession: (name: string) => Promise<void>
+    setPinMode: (mode: 'none' | 'project' | 'global') => Promise<void>
     deleteSession: () => Promise<void>
     isPending: boolean
 } {
@@ -103,7 +104,14 @@ export function useSessionActions(
         },
         onSuccess: (result) => {
             void (async () => {
-                await invalidateSession()
+                // When reopen merges into a different id, the source detail may
+                // already be gone. Invalidating it while still on the source
+                // route races with draft handoff and flashes "Session unavailable".
+                if (result.sessionId === sessionId) {
+                    await invalidateSession()
+                } else {
+                    await queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
+                }
                 markSessionActiveInCache(result.sessionId)
             })()
         },
@@ -227,6 +235,14 @@ export function useSessionActions(
         onSuccess: () => void invalidateSession(),
     })
 
+    const pinMutation = useMutation({
+        mutationFn: async (mode: 'none' | 'project' | 'global') => {
+            if (!api || !sessionId) throw new Error('Session unavailable')
+            await api.setSessionPinMode(sessionId, mode)
+        },
+        onSuccess: () => void invalidateSession(),
+    })
+
     const deleteMutation = useMutation({
         mutationFn: async () => {
             if (!api || !sessionId) {
@@ -255,6 +271,7 @@ export function useSessionActions(
         setEffort: effortMutation.mutateAsync,
         setServiceTier: serviceTierMutation.mutateAsync,
         renameSession: renameMutation.mutateAsync,
+        setPinMode: pinMutation.mutateAsync,
         deleteSession: deleteMutation.mutateAsync,
         isPending: abortMutation.isPending
             || archiveMutation.isPending
@@ -268,6 +285,7 @@ export function useSessionActions(
             || effortMutation.isPending
             || serviceTierMutation.isPending
             || renameMutation.isPending
+            || pinMutation.isPending
             || deleteMutation.isPending,
     }
 }

@@ -3,6 +3,8 @@ import {
     extractAssistantPlainText,
     extractNotifySummary,
     isRedundantGoalStatusEventContent,
+    splitNotifySummary,
+    stripNotifySummaryFooter,
     type NotifySummary
 } from './messages'
 
@@ -87,6 +89,21 @@ describe('extractAssistantPlainText', () => {
         expect(extractAssistantPlainText(content)).toBeNull()
     })
 
+    test('extracts AGY agy_message prose', () => {
+        const content = {
+            type: 'output',
+            data: { type: 'agy_message', content: 'PINGOK\n\nAGENT_NOTIFY_SUMMARY {"status":"done","summary":"ok"}' }
+        }
+        expect(extractAssistantPlainText(content)).toContain('AGENT_NOTIFY_SUMMARY')
+    })
+
+    test('returns null for empty AGY agy_message', () => {
+        expect(extractAssistantPlainText({
+            type: 'output',
+            data: { type: 'agy_message', content: '   ' }
+        })).toBeNull()
+    })
+
     test('returns null for unknown content shapes', () => {
         expect(extractAssistantPlainText({ type: 'event', data: {} })).toBeNull()
         expect(extractAssistantPlainText({ type: 'text' })).toBeNull()
@@ -122,6 +139,38 @@ describe('extractNotifySummary', () => {
         expect(r?.summary).toBe('Published v0.1.0')
     })
 
+    test('parses when prose is glued onto the same last line before the token', () => {
+        // Agents sometimes omit the newline before the footer.
+        const glued = 'Ownership session pinged.AGENT_NOTIFY_SUMMARY {"version":1,"status":"done","summary":"ok"}'
+        const r = extractNotifySummary(glued)
+        expect(r).not.toBeNull()
+        expect(r?.version).toBe(1)
+        expect(r?.status).toBe('done')
+        expect(r?.summary).toBe('ok')
+    })
+
+    test('rejects whitespace-delimited contract examples on the last line', () => {
+        const example = 'Example: AGENT_NOTIFY_SUMMARY {"summary":"Done","status":"done"}'
+        expect(extractNotifySummary(example)).toBeNull()
+        expect(splitNotifySummary(example)).toBeNull()
+        expect(stripNotifySummaryFooter(example)).toBe(example)
+    })
+
+    test('accepts a standalone footer with leading indentation', () => {
+        const indented = '    AGENT_NOTIFY_SUMMARY {"summary":"Done","status":"done"}'
+        const r = extractNotifySummary(indented)
+        expect(r?.summary).toBe('Done')
+        expect(r?.status).toBe('done')
+        expect(stripNotifySummaryFooter(`Prose.\n${indented}`)).toBe('Prose.')
+    })
+
+    test('parses glued token after multi-line prose (token still on last line)', () => {
+        const text = `Did the work.\n\nOwnership session pinged.AGENT_NOTIFY_SUMMARY {"version":1,"status":"done","summary":"ok"}`
+        const r = extractNotifySummary(text)
+        expect(r?.summary).toBe('ok')
+        expect(r?.status).toBe('done')
+    })
+
     test('tolerates trailing whitespace and blank lines', () => {
         const r = extractNotifySummary(`prose\n\n${FULL_LINE}\n\n  \n`)
         expect(r?.summary).toBe('Published v0.1.0')
@@ -130,6 +179,14 @@ describe('extractNotifySummary', () => {
     test('returns null when summary is not on the LAST non-empty line', () => {
         // Operator wrote prose AFTER the line - non-compliant.
         const text = `${FULL_LINE}\nOh, one more thing.`
+        expect(extractNotifySummary(text)).toBeNull()
+    })
+
+    test('ignores mid-message token that is not on the last non-empty line', () => {
+        const text = [
+            'See AGENT_NOTIFY_SUMMARY {"version":1,"status":"done","summary":"mid"} for the contract.',
+            'More prose after that quote.',
+        ].join('\n')
         expect(extractNotifySummary(text)).toBeNull()
     })
 
@@ -169,6 +226,85 @@ describe('extractNotifySummary', () => {
         const r = extractNotifySummary(text)
         expect(r?.summary).toBe('thing {nested} thing')
         expect(r?.status).toBe('done')
+    })
+
+    test('parses when a JSON string value mentions the token literal', () => {
+        // lastIndexOf would start inside the summary value and fail.
+        const text = 'AGENT_NOTIFY_SUMMARY {"summary":"Fixed AGENT_NOTIFY_SUMMARY parsing","status":"done"}'
+        const r = extractNotifySummary(text)
+        expect(r?.summary).toBe('Fixed AGENT_NOTIFY_SUMMARY parsing')
+        expect(r?.status).toBe('done')
+    })
+
+    test('parses glued prose when a JSON string value mentions the token', () => {
+        const text = 'Done.AGENT_NOTIFY_SUMMARY {"summary":"mentions AGENT_NOTIFY_SUMMARY here","status":"done"}'
+        const r = extractNotifySummary(text)
+        expect(r?.summary).toBe('mentions AGENT_NOTIFY_SUMMARY here')
+        expect(r?.status).toBe('done')
+    })
+
+    test('splits a clean footer into visible prose and metadata', () => {
+        const text = 'Did the work.\n\nAGENT_NOTIFY_SUMMARY {"summary":"Done","status":"done","action":"Review it"}'
+        const result = splitNotifySummary(text)
+
+        expect(result?.visibleText).toBe('Did the work.')
+        expect(result?.summary).toEqual({ summary: 'Done', status: 'done', action: 'Review it' })
+    })
+
+    test('splits a footer glued to prose on the last line', () => {
+        const text = 'Did the work.\nOwnership session pinged.AGENT_NOTIFY_SUMMARY {"summary":"Done","status":"done"}'
+        const result = splitNotifySummary(text)
+
+        expect(result?.visibleText).toBe('Did the work.\nOwnership session pinged.')
+        expect(result?.summary.summary).toBe('Done')
+    })
+
+    test('preserves leading indentation when a footer is glued to Markdown prose', () => {
+        const text = '- item\n    nested line.AGENT_NOTIFY_SUMMARY {"summary":"Done"}'
+        const result = splitNotifySummary(text)
+
+        expect(result?.visibleText).toBe('- item\n    nested line.')
+    })
+
+    test('returns null when the footer is not a compliant final line', () => {
+        expect(splitNotifySummary('AGENT_NOTIFY_SUMMARY {"summary":"Done"}\nMore prose')).toBeNull()
+        expect(splitNotifySummary('Plain prose')).toBeNull()
+    })
+})
+
+describe('stripNotifySummaryFooter', () => {
+    const FOOTER = 'AGENT_NOTIFY_SUMMARY {"version":1,"status":"done","summary":"ok","action":"Ship it"}'
+
+    test('removes a trailing well-formed footer and keeps prose', () => {
+        expect(stripNotifySummaryFooter(`Here is the answer.\n\n${FOOTER}`)).toBe('Here is the answer.')
+    })
+
+    test('keeps glued last-line prose when stripping the footer', () => {
+        expect(stripNotifySummaryFooter(`Ownership session pinged.${FOOTER}`)).toBe(
+            'Ownership session pinged.'
+        )
+    })
+
+    test('tolerates trailing whitespace after the footer line', () => {
+        expect(stripNotifySummaryFooter(`Done.\n${FOOTER}\n\n`)).toBe('Done.')
+    })
+
+    test('leaves malformed or truncated footers untouched', () => {
+        const truncated = 'Done.\nAGENT_NOTIFY_SUMMARY {"summary":'
+        const bogus = 'Done.\nAGENT_NOTIFY_SUMMARY {bogus}'
+        expect(stripNotifySummaryFooter(truncated)).toBe(truncated)
+        expect(stripNotifySummaryFooter(bogus)).toBe(bogus)
+    })
+
+    test('leaves mid-body mentions and non-final footers untouched', () => {
+        const mid = 'See AGENT_NOTIFY_SUMMARY {"status":"done","summary":"mid"} for the contract.'
+        const nonFinal = `${FOOTER}\nMore prose`
+        expect(stripNotifySummaryFooter(mid)).toBe(mid)
+        expect(stripNotifySummaryFooter(nonFinal)).toBe(nonFinal)
+    })
+
+    test('returns empty string when the message is only a footer', () => {
+        expect(stripNotifySummaryFooter(FOOTER)).toBe('')
     })
 })
 

@@ -58,14 +58,22 @@ export const CreateSessionResponseSchema = z.object({
 export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>
 
 export const HubSettingsResponseSchema = z.object({
-    sessionSummaryContract: z.boolean()
+    sessionSummaryContract: z.boolean(),
+    /** Show compact AGENT_NOTIFY_SUMMARY in chat (default off / hide). */
+    sessionSummaryInChat: z.boolean()
 })
 
 export type HubSettingsResponse = z.infer<typeof HubSettingsResponseSchema>
 
-export const UpdateHubSettingsRequestSchema = z.object({
-    sessionSummaryContract: z.boolean()
-})
+export const UpdateHubSettingsRequestSchema = z
+    .object({
+        sessionSummaryContract: z.boolean().optional(),
+        sessionSummaryInChat: z.boolean().optional()
+    })
+    .refine(
+        (data) => data.sessionSummaryContract !== undefined || data.sessionSummaryInChat !== undefined,
+        { message: 'At least one hub setting field is required' }
+    )
 
 export type UpdateHubSettingsRequest = z.infer<typeof UpdateHubSettingsRequestSchema>
 
@@ -307,6 +315,13 @@ export const RenameSessionRequestSchema = z.object({
 })
 
 export type RenameSessionRequest = z.infer<typeof RenameSessionRequestSchema>
+
+export const SetSessionPinnedRequestSchema = z.object({
+    mode: z.enum(['none', 'project', 'global'])
+})
+
+export type SetSessionPinnedRequest = z.infer<typeof SetSessionPinnedRequestSchema>
+export type SessionPinMode = SetSessionPinnedRequest['mode']
 
 /**
  * An empty string clears the custom name, so unlike session rename there is no
@@ -620,6 +635,8 @@ export type GitCommandResponse = CommandResponse
 export type FileReadResponse = {
     success: boolean
     content?: string
+    size?: number
+    modified?: number
     error?: string
 }
 

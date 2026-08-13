@@ -299,6 +299,8 @@ export const SessionSchema = z.object({
     seq: z.number(),
     createdAt: z.number(),
     updatedAt: z.number(),
+    pinned: z.boolean().optional(),
+    globalPinned: z.boolean().optional(),
     active: z.boolean(),
     // Hub may still emit null for legacy SQLite rows; keep output type number.
     activeAt: z.number().nullish().transform((value) => value ?? 0),
@@ -430,7 +432,18 @@ export const MachineMetadataSchema = z.object({
     homeDir: z.string().optional(),
     happyHomeDir: z.string().optional(),
     happyLibDir: z.string().optional(),
-    workspaceRoots: z.array(z.string()).optional()
+    workspaceRoots: z.array(z.string()).optional(),
+    /** Machine-scoped RPC capability ids this runner registers (see runnerCapabilities). */
+    capabilities: z.array(z.string()).optional(),
+    /** CLI binary/package mtime when this runner process started. */
+    startedCliMtimeMs: z.number().optional(),
+    /** Current on-disk CLI binary/package mtime (may differ after upgrade). */
+    installedCliMtimeMs: z.number().optional(),
+    /**
+     * Runner is under systemd/pm2 (HAPI_RUNNER_SUPERVISED=1). Banner Restart
+     * may stop-runner; unsupervised detached runners must not use that path.
+     */
+    supervisedRestart: z.boolean().optional(),
 })
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>
@@ -588,3 +601,11 @@ export const CancelMessageResponseSchema = z.discriminatedUnion('status', [
 ])
 
 export type CancelMessageResponse = z.infer<typeof CancelMessageResponseSchema>
+
+export const SteerQueuedMessageResponseSchema = z.discriminatedUnion('status', [
+    z.object({ status: z.literal('steered'), localId: z.string() }),
+    z.object({ status: z.literal('invoked'), message: DecryptedMessageSchema }),
+    z.object({ status: z.literal('failed'), error: z.string(), localId: z.string().nullable() }),
+])
+
+export type SteerQueuedMessageResponse = z.infer<typeof SteerQueuedMessageResponseSchema>

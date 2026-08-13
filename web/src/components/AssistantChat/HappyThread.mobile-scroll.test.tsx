@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { PropsWithChildren } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
@@ -32,34 +33,40 @@ import type { Session } from '@/types/api'
 const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo')
 
 function renderThread(onViewModeChange = vi.fn()) {
-    const result = render(
-        <I18nProvider>
-            <HappyThread
-                api={{} as ApiClient}
-                session={{ metadata: {} } as Session}
-                sessionId="mobile-scroll-session"
-                metadata={null}
-                disabled={false}
-                onRefresh={vi.fn()}
-                onViewModeChange={onViewModeChange}
-                isSyncingTail={false}
-                messagesWarning={null}
-                hasMoreMessages={false}
-                isLoadingMoreMessages={false}
-                onLoadMore={vi.fn().mockResolvedValue({ status: 'exhausted' })}
-                onCancelLoadMore={vi.fn()}
-                unseenCount={0}
-                rawMessagesCount={1}
-                normalizedMessagesCount={1}
-                messagesVersion={1}
-                historyVersion={0}
-                forceScrollToken={0}
-                outlineOpen={false}
-                outlineItems={[]}
-                onOutlineOpenChange={vi.fn()}
-            />
-        </I18nProvider>
+    const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } }
+    })
+    const renderHappyThread = (forceScrollToken: number) => (
+        <QueryClientProvider client={queryClient}>
+            <I18nProvider>
+                <HappyThread
+                    api={{ getHubSettings: vi.fn().mockResolvedValue({ sessionSummaryContract: false, sessionSummaryInChat: false }) } as unknown as ApiClient}
+                    session={{ metadata: {} } as Session}
+                    sessionId="mobile-scroll-session"
+                    metadata={null}
+                    disabled={false}
+                    onRefresh={vi.fn()}
+                    onViewModeChange={onViewModeChange}
+                    isSyncingTail={false}
+                    messagesWarning={null}
+                    hasMoreMessages={false}
+                    isLoadingMoreMessages={false}
+                    onLoadMore={vi.fn().mockResolvedValue({ status: 'exhausted' })}
+                    onCancelLoadMore={vi.fn()}
+                    unseenCount={0}
+                    rawMessagesCount={1}
+                    normalizedMessagesCount={1}
+                    messagesVersion={1}
+                    historyVersion={0}
+                    forceScrollToken={forceScrollToken}
+                    outlineOpen={false}
+                    outlineItems={[]}
+                    onOutlineOpenChange={vi.fn()}
+                />
+            </I18nProvider>
+        </QueryClientProvider>
     )
+    const result = render(renderHappyThread(0))
     const viewport = result.container.querySelector<HTMLElement>('.chat-scroll-y')
     if (!viewport) {
         throw new Error('Chat viewport was not rendered')
@@ -71,7 +78,12 @@ function renderThread(onViewModeChange = vi.fn()) {
     act(() => {
         vi.advanceTimersByTime(0)
     })
-    return { ...result, viewport, onViewModeChange }
+    return {
+        ...result,
+        viewport,
+        onViewModeChange,
+        rerenderThread: (forceScrollToken: number) => result.rerender(renderHappyThread(forceScrollToken))
+    }
 }
 
 beforeEach(() => {
@@ -188,6 +200,39 @@ describe('mobile initial scroll settling', () => {
         })
 
         expect(viewport.scrollTop).toBe(702)
+        expect(onViewModeChange).not.toHaveBeenCalledWith('history')
+    })
+})
+
+describe('explicit tail scrolling', () => {
+    it('stays in tail mode through smooth-scroll progress and content growth', () => {
+        const { viewport, onViewModeChange, rerenderThread } = renderThread()
+        act(() => {
+            vi.advanceTimersByTime(1_800)
+        })
+
+        viewport.scrollTop = 400
+        fireEvent.scroll(viewport)
+        expect(onViewModeChange).toHaveBeenLastCalledWith('history')
+
+        Object.defineProperty(viewport, 'scrollTo', {
+            configurable: true,
+            value: vi.fn()
+        })
+        onViewModeChange.mockClear()
+        rerenderThread(1)
+        expect(onViewModeChange).toHaveBeenLastCalledWith('tail')
+
+        viewport.scrollTop = 500
+        fireEvent.scroll(viewport)
+        Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 1_400 })
+        viewport.scrollTop = 650
+        fireEvent.scroll(viewport)
+
+        expect(onViewModeChange).not.toHaveBeenCalledWith('history')
+
+        viewport.scrollTop = 870
+        fireEvent.scroll(viewport)
         expect(onViewModeChange).not.toHaveBeenCalledWith('history')
     })
 })

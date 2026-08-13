@@ -607,7 +607,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
         return () => {
             cancelled = true
         }
-    }, [props.isOpen, props.sourceSnapshots, props.metadataItems, ready, restoreTick, previewRevision, exportWidth, preserveSourceLayout])
+    }, [props.isOpen, props.title, props.sourceSnapshots, props.metadataItems, ready, restoreTick, previewRevision, exportWidth, preserveSourceLayout])
 
     const handlePreviewClick = (event: ReactMouseEvent<HTMLElement>) => {
         const target = event.target
@@ -771,7 +771,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
                             </div>
                         </div>
                         <div ref={bodyRef} data-hapi-share-body="true" className="flex flex-col gap-3" />
-                        <div className="mt-4 border-t border-[var(--app-divider)] pt-3 text-[10px] text-[var(--app-hint)]">
+                        <div className="mt-4 border-t border-[var(--app-divider)] pt-3 text-right text-[10px] text-[var(--app-hint)]">
                             {t('shareTurn.generated')}
                         </div>
                     </div>

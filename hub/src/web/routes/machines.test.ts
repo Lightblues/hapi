@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { Machine, SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { createMachinesRoutes } from './machines'
+import { RpcTargetMissingError } from '../../sync/rpcGateway'
 
 function createMachine(overrides?: Partial<Machine>): Machine {
     return {
@@ -99,6 +100,36 @@ describe('machines routes', () => {
             models: [
                 { id: 'gpt-5.5', displayName: 'GPT-5.5', isDefault: true }
             ]
+        })
+    })
+
+    it('returns a stable code when the Codex machine RPC target is absent', async () => {
+        const machine = createMachine()
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listCodexModelsForMachine: async () => {
+                throw new RpcTargetMissingError(
+                    'machine-1:listCodexModels',
+                    'handler-not-registered'
+                )
+            }
+        } as Partial<SyncEngine>
+
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const response = await app.request('/api/machines/machine-1/codex-models')
+
+        expect(response.status).toBe(503)
+        expect(await response.json()).toEqual({
+            success: false,
+            error: 'RPC handler not registered: machine-1:listCodexModels',
+            code: 'rpc_target_missing'
         })
     })
 
